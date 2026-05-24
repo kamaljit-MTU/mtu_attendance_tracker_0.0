@@ -1,5 +1,10 @@
+Short description:
+
 # mtu_attendance_tracker_0.0
 MTU Attendance Tracker - A comprehensive attendance management system with geofencing, selfie verification, manual time entry, and Excel reporting. Built for educational institutions with separate instructor and student portals.
+
+Detailed description:
+
 # 📚 MTU Attendance Tracker
 
 A production-ready attendance management system designed for educational institutions, featuring real-time geofencing, selfie verification, and comprehensive reporting. Built with Node.js, Express, and vanilla JavaScript – no database setup required!
