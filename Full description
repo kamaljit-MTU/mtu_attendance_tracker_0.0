@@ -13,6 +13,7 @@ A production-ready attendance management system designed for educational institu
 - **Excel Export** - Download color-coded attendance reports (P/L/A format)
 - **Profile Settings** - Update name, email, and password
 - **Live Location Tracking** - Shows student's distance from geofenced area during check-in
+- **Initial login credentials: Username- instructor@mtu.ac.in Password- admin123 (Can change this later on from Instructor>Profile Settings)
 
 ### 👩‍🎓 For Students
 - **Selfie Attendance** - Mark attendance with camera capture (required for students)
@@ -33,10 +34,19 @@ A production-ready attendance management system designed for educational institu
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Node.js (v14 or higher)
-- npm (comes with Node.js)
+  1. Node.js (v14 or higher). 
+      Please download an appropriate version from https://nodejs.org/en/download. Setup should be pretty straight forward for this!
+  2. npm 
+      This comes with Node.js installed above. It is used in managing the js file.
+  3. ngrok. 
+      It is required to tunnel local ports to public URL. This helps in sharing the link with students. 
+      Please go to https://ngrok.com/ and create your account. Download ngrok from the appropriate store according to your OS system (e.g., Microsoft Store for Windows systems).
+      Run the "ngrok config add-authtoken ..." in your terminal (Linux/MacOS)/command prompt (Windows systems)
+      Run then ngrok http 3000 (port used here is 3000)
+      
 
 ### Installation
+## The following commands are run at terminal/command prompt
 
 ```bash
 # Clone the repository
@@ -48,3 +58,8 @@ npm install express bcryptjs jsonwebtoken multer exceljs csv-parser
 
 # Start the server
 node server.js
+
+# Start ngrok
+ngrok http 3000
+Copy the link shown in your terminal/command prompt (https...) "Forwarding                    https://something-random-given-here.ngrok-free.dev -> http://localhost:3000"
+Shorten it (bitly etc.) or share it as is to your students.
