@@ -52,7 +52,7 @@ A production-ready attendance management system designed for educational institu
       Run then ngrok http 3000 (port used here is 3000)
   4. mongodb
       For database management. (https://www.mongodb.com/)
-Required files are also supplied here if you want to directly download from here.
+
 
 ### Installation
 ## The following commands are run at terminal/command prompt
