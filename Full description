@@ -38,12 +38,14 @@ A production-ready attendance management system designed for educational institu
       Please download an appropriate version from https://nodejs.org/en/download. Setup should be pretty straight forward for this!
   2. npm 
       This comes with Node.js installed above. It is used in managing the js file.
-  3. ngrok. 
+  3. ngrok 
       It is required to tunnel local ports to public URL. This helps in sharing the link with students. 
       Please go to https://ngrok.com/ and create your account. Download ngrok from the appropriate store according to your OS system (e.g., Microsoft Store for Windows systems).
       Run the "ngrok config add-authtoken ..." in your terminal (Linux/MacOS)/command prompt (Windows systems)
       Run then ngrok http 3000 (port used here is 3000)
-      
+  4. mongodb
+      For database management. (https://www.mongodb.com/)
+
 
 ### Installation
 ## The following commands are run at terminal/command prompt
