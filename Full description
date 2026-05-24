@@ -1,0 +1,50 @@
+# 📚 MTU Attendance Tracker
+
+A production-ready attendance management system designed for educational institutions, featuring real-time geofencing, selfie verification, and comprehensive reporting. Built with Node.js, Express, and vanilla JavaScript – no database setup required!
+
+## ✨ Features
+
+### 👨‍🏫 For Instructors
+- **Class Management** - Create classes with multiple time slots per day (different timings for different days)
+- **Geofencing** - Set location boundaries with custom radius (10-500m) - students must be within range to mark attendance
+- **Manual Attendance** - Mark attendance manually for any date, even non-class days
+- **Student Enrollment** - Enroll students manually or via CSV/Excel bulk upload
+- **Attendance Calendar** - View monthly attendance matrix with P/L/A status and overall percentage
+- **Excel Export** - Download color-coded attendance reports (P/L/A format)
+- **Profile Settings** - Update name, email, and password
+- **Live Location Tracking** - Shows student's distance from geofenced area during check-in
+
+### 👩‍🎓 For Students
+- **Selfie Attendance** - Mark attendance with camera capture (required for students)
+- **Self-Enrollment** - Enroll in classes using course code
+- **Attendance History** - View personal attendance calendar with percentage
+- **Geofence Validation** - Automatic location check before marking attendance
+- **Time Validation** - Can only mark attendance during scheduled class hours
+- **Profile Settings** - Update personal information
+
+### 📊 Core Features
+- **Multiple Time Slots** - Different timings for different days (e.g., Mon 9-11am, Wed 2-4pm)
+- **IST Timezone** - All dates and times displayed in Indian Standard Time
+- **Overall Attendance %** - Calculated from first present/late record to last
+- **Dark Theme UI** - Modern, eye-friendly interface
+- **Responsive Design** - Works on desktop, tablet, and mobile browsers
+- **No Database Setup** - Uses simple JSON file storage (portable, no installation)
+
+## 🚀 Quick Start
+
+### Prerequisites
+- Node.js (v14 or higher)
+- npm (comes with Node.js)
+
+### Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/mtu-attendance-tracker.git
+cd mtu-attendance-tracker
+
+# Install dependencies
+npm install express bcryptjs jsonwebtoken multer exceljs csv-parser
+
+# Start the server
+node server.js
