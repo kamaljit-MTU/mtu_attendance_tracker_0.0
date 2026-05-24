@@ -50,8 +50,6 @@ A production-ready attendance management system designed for educational institu
       Please go to https://ngrok.com/ and create your account. Download ngrok from the appropriate store according to your OS system (e.g., Microsoft Store for Windows systems).
       Run the "ngrok config add-authtoken ..." in your terminal (Linux/MacOS)/command prompt (Windows systems)
       Run then ngrok http 3000 (port used here is 3000)
-  4. mongodb
-      For database management. (https://www.mongodb.com/)
 
 
 ### Installation
