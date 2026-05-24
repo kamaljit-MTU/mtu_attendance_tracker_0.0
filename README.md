@@ -70,3 +70,107 @@ node server.js
 ngrok http 3000
 Copy the link shown in your terminal/command prompt (https...) "Forwarding                    https://something-random-given-here.ngrok-free.dev -> http://localhost:3000"
 Shorten it (bitly etc.) or share it as is to your students.
+
+
+Default Login
+Instructor: instructor@mtu.ac.in / admin123
+
+Students: Create your own account via registration
+
+Open http://localhost:3000 and start tracking attendance!
+
+🛠️ Technology Stack
+Backend: Node.js, Express.js
+
+Authentication: JWT (JSON Web Tokens), bcryptjs
+
+File Upload: Multer
+
+Excel Generation: ExcelJS
+
+CSV Parsing: csv-parser
+
+Database: JSON file (No MongoDB/PostgreSQL needed!)
+
+Frontend: Vanilla HTML/CSS/JavaScript (No frameworks)
+
+📁 Project Structure
+text
+mtu-attendance-tracker/
+├── server.js              # Main application file
+├── database.json          # Auto-generated database (users, classes, attendance)
+├── uploads/               # Selfie images and temp files
+│   ├── selfies/          # Captured selfie images
+│   └── temp/             # Temporary upload folder
+├── package.json          # Dependencies
+└── README.md             # This file
+📸 Screenshots
+Instructor Dashboard
+Create classes with flexible scheduling
+
+Manage geofencing with visual radius slider
+
+View real-time attendance statistics
+
+Attendance Calendar
+Color-coded matrix (P = Present, L = Late, A = Absent)
+
+Overall percentage calculated over entire course period
+
+Export to Excel with one click
+
+Student Attendance
+Camera capture for selfie verification
+
+GPS location validation
+
+Time-based restrictions (only during class hours)
+
+🔒 Security Features
+Password hashing with bcrypt
+
+JWT-based authentication
+
+Role-based access control (instructor/student)
+
+Selfie verification prevents proxy attendance
+
+Geofencing prevents remote attendance marking
+
+📊 API Endpoints
+Method	Endpoint	Description
+POST	/api/register	Create student account
+POST	/api/login	User login
+POST	/api/classes	Create new class (instructor)
+PUT	/api/classes/:id	Update class details
+POST	/api/attendance	Mark attendance with selfie
+POST	/api/manual-attendance	Manual attendance entry
+GET	/api/calendar/:id/:year/:month	Get monthly calendar
+GET	/api/export/:id/:year/:month	Export Excel report
+PUT	/api/profile	Update user profile
+🎯 Use Cases
+Universities & Colleges - Track lecture attendance
+
+Training Centers - Monitor student participation
+
+Corporate Training - Employee attendance tracking
+
+Workshops & Seminars - Session-wise attendance
+
+🤝 Contributing
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+📄 License
+MIT License - feel free to use for personal or commercial projects.
+
+🙏 Acknowledgments
+Inspired by modern attendance systems like Jibble
+
+Built for Manipur Technical University (MTU)
+
+Special thanks to all contributors
+
+📧 Contact
+For support or queries, please open an issue on GitHub.
+
+Star ⭐ this repository if you find it useful!
