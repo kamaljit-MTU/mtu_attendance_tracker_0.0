@@ -53,8 +53,6 @@ A production-ready attendance management system designed for educational institu
 
 
 ### Installation
-## The following commands are run at terminal/command prompt
-
 
 ```bash
 📁 Project Structure
@@ -67,6 +65,8 @@ mtu-attendance-tracker/
 │   └── temp/             # Temporary upload folder
 ├── package.json          # Dependencies
 └── README.md             # This file
+
+## The following commands are run at terminal/command prompt
 
 # Clone the repository
 git clone https://github.com/yourusername/mtu-attendance-tracker.git
@@ -90,9 +90,9 @@ Instructor: instructor@mtu.ac.in / admin123
 
 Students: Create their own accounts via registration
 
+```
 
-
-🛠️ Technology Stack
+🛠️ **Technology Stack**
 Backend: Node.js, Express.js
 
 Authentication: JWT (JSON Web Tokens), bcryptjs
@@ -108,7 +108,8 @@ Database: JSON file (No MongoDB/PostgreSQL needed!)
 Frontend: Vanilla HTML/CSS/JavaScript (No frameworks)
 
 
-📸 Screenshots
+📸 **Screenshots**
+
 Instructor Dashboard
 Create classes with flexible scheduling
 
@@ -116,7 +117,7 @@ Manage geofencing with visual radius slider
 
 View real-time attendance statistics
 
-Attendance Calendar
+**Attendance Calendar**
 Color-coded matrix (P = Present, L = Late, A = Absent)
 
 Overall percentage calculated over entire course period
@@ -130,7 +131,7 @@ GPS location validation
 
 Time-based restrictions (only during class hours)
 
-🔒 Security Features
+🔒 **Security Features**
 Password hashing with bcrypt
 
 JWT-based authentication
@@ -141,7 +142,8 @@ Selfie verification prevents proxy attendance
 
 Geofencing prevents remote attendance marking
 
-📊 API Endpoints
+📊 **API Endpoints**
+```bash
 Method	Endpoint	Description
 POST	/api/register	Create student account
 POST	/api/login	User login
@@ -152,7 +154,10 @@ POST	/api/manual-attendance	Manual attendance entry
 GET	/api/calendar/:id/:year/:month	Get monthly calendar
 GET	/api/export/:id/:year/:month	Export Excel report
 PUT	/api/profile	Update user profile
-🎯 Use Cases
+```
+
+🎯 **Use Cases**
+
 Universities & Colleges - Track lecture attendance
 
 Training Centers - Monitor student participation
@@ -161,20 +166,21 @@ Corporate Training - Employee attendance tracking
 
 Workshops & Seminars - Session-wise attendance
 
-🤝 Contributing
+🤝 **Contributing**
 Contributions are welcome! Please feel free to submit a Pull Request.
 
-📄 License
+📄 **License**
 MIT License - feel free to use for personal or commercial projects.
 
-🙏 Acknowledgments
+🙏 **Acknowledgments**
+
 Inspired by modern attendance systems like Jibble
 
 Built for Manipur Technical University (MTU)
 
 Special thanks to all contributors
 
-📧 Contact
+📧 **Contact**
 For support or queries, please open an issue on GitHub.
 
 Star ⭐ this repository if you find it useful!
