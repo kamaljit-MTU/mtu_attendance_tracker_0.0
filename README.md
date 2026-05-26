@@ -55,6 +55,8 @@ A production-ready attendance management system designed for educational institu
 ### Installation
 ## The following commands are run at terminal/command prompt
 
+
+```bash
 📁 Project Structure
 text
 mtu-attendance-tracker/
@@ -66,7 +68,6 @@ mtu-attendance-tracker/
 ├── package.json          # Dependencies
 └── README.md             # This file
 
-```bash
 # Clone the repository
 git clone https://github.com/yourusername/mtu-attendance-tracker.git
 cd mtu-attendance-tracker
