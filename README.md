@@ -55,6 +55,17 @@ A production-ready attendance management system designed for educational institu
 ### Installation
 ## The following commands are run at terminal/command prompt
 
+📁 Project Structure
+text
+mtu-attendance-tracker/
+├── server.js              # Main application file
+├── database.json          # Auto-generated database (users, classes, attendance)
+├── uploads/               # Selfie images and temp files
+│   ├── selfies/          # Captured selfie images
+│   └── temp/             # Temporary upload folder
+├── package.json          # Dependencies
+└── README.md             # This file
+
 ```bash
 # Clone the repository
 git clone https://github.com/yourusername/mtu-attendance-tracker.git
@@ -68,16 +79,17 @@ node server.js
 
 # Start ngrok
 ngrok http 3000
-Copy the link shown in your terminal/command prompt (https...) "Forwarding                    https://something-random-given-here.ngrok-free.dev -> http://localhost:3000"
+Copy the link shown in your terminal/command prompt (https...)
+"Forwarding...https://something-random-given-here.ngrok-free.dev -> http://localhost:3000"
 Shorten it (bitly etc.) or share it as is to your students.
 
 
 Default Login
 Instructor: instructor@mtu.ac.in / admin123
 
-Students: Create your own account via registration
+Students: Create their own accounts via registration
 
-Open http://localhost:3000 and start tracking attendance!
+
 
 🛠️ Technology Stack
 Backend: Node.js, Express.js
@@ -94,16 +106,7 @@ Database: JSON file (No MongoDB/PostgreSQL needed!)
 
 Frontend: Vanilla HTML/CSS/JavaScript (No frameworks)
 
-📁 Project Structure
-text
-mtu-attendance-tracker/
-├── server.js              # Main application file
-├── database.json          # Auto-generated database (users, classes, attendance)
-├── uploads/               # Selfie images and temp files
-│   ├── selfies/          # Captured selfie images
-│   └── temp/             # Temporary upload folder
-├── package.json          # Dependencies
-└── README.md             # This file
+
 📸 Screenshots
 Instructor Dashboard
 Create classes with flexible scheduling
