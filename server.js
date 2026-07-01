@@ -136,24 +136,18 @@ app.put('/api/profile', auth, async (req, res) => {
   const user = db.users.find(u => u.id === req.user.userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
   
-  // Update name if provided
   if (name) user.name = name;
-  
-  // Update email if provided and not already taken
   if (email && email !== user.email) {
     const existing = db.users.find(u => u.email === email);
     if (existing) return res.status(400).json({ error: 'Email already in use' });
     user.email = email;
   }
-  
-  // Update password if provided
   if (newPassword) {
-    if (!currentPassword) return res.status(400).json({ error: 'Current password required to change password' });
+    if (!currentPassword) return res.status(400).json({ error: 'Current password required' });
     const isValid = await bcrypt.compare(currentPassword, user.password);
     if (!isValid) return res.status(401).json({ error: 'Current password is incorrect' });
     user.password = await bcrypt.hash(newPassword, 10);
   }
-  
   writeDB(db);
   res.json({ 
     message: 'Profile updated successfully',
@@ -161,7 +155,7 @@ app.put('/api/profile', auth, async (req, res) => {
   });
 });
 
-// ---------- Manual Attendance for Instructors ----------
+// ---------- Manual Attendance ----------
 app.post('/api/manual-attendance', auth, async (req, res) => {
   if (req.user.role !== 'instructor') return res.status(403).json({ error: 'Only instructors' });
   const { classId, date, attendance } = req.body;
@@ -791,7 +785,7 @@ app.get('/api/export/:classId/:year/:month', auth, async (req, res) => {
   res.end();
 });
 
-// ---------- Frontend (with Profile Settings dropdown) ----------
+// ---------- Frontend with OpenStreetMap Leaflet integration ----------
 app.get('/', (req, res) => {
   res.send(`<!DOCTYPE html>
 <html>
@@ -799,6 +793,8 @@ app.get('/', (req, res) => {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MTU Attendance Tracker</title>
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -974,6 +970,8 @@ app.get('/', (req, res) => {
     .dropdown-content a:hover { background: #334155; border-radius: 12px; }
     .show { display: block; }
     .user-name { cursor: pointer; padding: 8px 16px; background: #1e293b; border-radius: 40px; display: inline-block; }
+    #geofenceMap, .class-geofence-map { height: 300px; width: 100%; border-radius: 12px; overflow: hidden; margin-top: 10px; }
+    .map-container { position: relative; }
   </style>
 </head>
 <body>
@@ -1013,9 +1011,8 @@ app.get('/', (req, res) => {
           <span id="userGreeting" class="user-name"></span>
           <div id="userDropdown" class="dropdown-content">
             <a onclick="openProfileModal()">⚙️ Profile Settings</a>
-           
+            <a onclick="logout()">🚪 Logout</a>
           </div>
-		  <button onclick="logout()">Logout</button>
         </div>
       </div>
     </div>
@@ -1049,6 +1046,8 @@ app.get('/', (req, res) => {
               <span class="preset" onclick="setRadius(200)">200m</span>
               <span class="preset" onclick="setRadius(500)">500m</span>
             </div>
+            <!-- Map container -->
+            <div id="geofenceMap" class="map-container"></div>
           </div>
           <button onclick="createClass()">✅ Create Class</button>
         </div>
@@ -1096,6 +1095,8 @@ app.get('/', (req, res) => {
           <span class="preset" onclick="setEditRadius(200)">200m</span>
           <span class="preset" onclick="setEditRadius(500)">500m</span>
         </div>
+        <!-- Edit map container -->
+        <div id="editGeofenceMap" class="map-container"></div>
       </div>
       <button onclick="updateClass()" style="margin-top:16px;">💾 Save Changes</button>
       <button onclick="closeEditModal()" style="background:#334155;">Cancel</button>
@@ -1178,6 +1179,9 @@ app.get('/', (req, res) => {
   </div>
 </div>
 
+<!-- Leaflet JS -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
 <script>
   let token = localStorage.getItem('token');
   let currentUser = null;
@@ -1193,7 +1197,185 @@ app.get('/', (req, res) => {
   let currentManualStudents = [];
   let currentManualAttendance = {};
 
-  // Dropdown
+  // Map variables
+  let createMap = null;
+  let createMarker = null;
+  let createCircle = null;
+  let editMap = null;
+  let editMarker = null;
+  let editCircle = null;
+  let classMaps = {};
+
+  // ----- Map functions -----
+  function initCreateMap(lat = 28.6139, lng = 77.2090) {
+    const container = document.getElementById('geofenceMap');
+    if (!container) return;
+    if (createMap) {
+      createMap.remove();
+      createMap = null;
+    }
+    createMap = L.map('geofenceMap', { zoomControl: true }).setView([lat, lng], 15);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(createMap);
+
+    const icon = L.icon({
+      iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+      iconSize: [25, 41],
+      iconAnchor: [12, 41]
+    });
+    createMarker = L.marker([lat, lng], { draggable: true, icon }).addTo(createMap);
+    createMarker.on('dragend', function() {
+      const pos = createMarker.getLatLng();
+      document.getElementById('geoLat').value = pos.lat.toFixed(6);
+      document.getElementById('geoLng').value = pos.lng.toFixed(6);
+      updateCreateCircle(pos.lat, pos.lng);
+    });
+    createMap.on('click', function(e) {
+      createMarker.setLatLng(e.latlng);
+      document.getElementById('geoLat').value = e.latlng.lat.toFixed(6);
+      document.getElementById('geoLng').value = e.latlng.lng.toFixed(6);
+      updateCreateCircle(e.latlng.lat, e.latlng.lng);
+    });
+    // Draw radius circle
+    const radius = parseInt(document.getElementById('geoRadius').value) || 100;
+    createCircle = L.circle([lat, lng], {
+      color: '#3b82f6',
+      fillColor: '#3b82f6',
+      fillOpacity: 0.15,
+      radius: radius
+    }).addTo(createMap);
+    // Update circle on radius slider change
+    document.getElementById('geoRadius').addEventListener('input', function() {
+      const r = parseInt(this.value);
+      document.getElementById('radiusValue').innerText = r;
+      if (createCircle && createMarker) {
+        const pos = createMarker.getLatLng();
+        createCircle.setLatLng(pos);
+        createCircle.setRadius(r);
+      }
+    });
+    setTimeout(() => createMap.invalidateSize(), 200);
+  }
+
+  function updateCreateCircle(lat, lng) {
+    if (createCircle) {
+      createCircle.setLatLng([lat, lng]);
+    }
+  }
+
+  function initEditMap(lat = 28.6139, lng = 77.2090) {
+    const container = document.getElementById('editGeofenceMap');
+    if (!container) return;
+    if (editMap) {
+      editMap.remove();
+      editMap = null;
+    }
+    editMap = L.map('editGeofenceMap', { zoomControl: true }).setView([lat, lng], 15);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(editMap);
+
+    const icon = L.icon({
+      iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+      iconSize: [25, 41],
+      iconAnchor: [12, 41]
+    });
+    editMarker = L.marker([lat, lng], { draggable: true, icon }).addTo(editMap);
+    editMarker.on('dragend', function() {
+      const pos = editMarker.getLatLng();
+      document.getElementById('editGeoLat').value = pos.lat.toFixed(6);
+      document.getElementById('editGeoLng').value = pos.lng.toFixed(6);
+      updateEditCircle(pos.lat, pos.lng);
+    });
+    editMap.on('click', function(e) {
+      editMarker.setLatLng(e.latlng);
+      document.getElementById('editGeoLat').value = e.latlng.lat.toFixed(6);
+      document.getElementById('editGeoLng').value = e.latlng.lng.toFixed(6);
+      updateEditCircle(e.latlng.lat, e.latlng.lng);
+    });
+    const radius = parseInt(document.getElementById('editGeoRadius').value) || 100;
+    editCircle = L.circle([lat, lng], {
+      color: '#3b82f6',
+      fillColor: '#3b82f6',
+      fillOpacity: 0.15,
+      radius: radius
+    }).addTo(editMap);
+    document.getElementById('editGeoRadius').addEventListener('input', function() {
+      const r = parseInt(this.value);
+      document.getElementById('editRadiusValue').innerText = r;
+      if (editCircle && editMarker) {
+        const pos = editMarker.getLatLng();
+        editCircle.setLatLng(pos);
+        editCircle.setRadius(r);
+      }
+    });
+    setTimeout(() => editMap.invalidateSize(), 200);
+  }
+
+  function updateEditCircle(lat, lng) {
+    if (editCircle) {
+      editCircle.setLatLng([lat, lng]);
+    }
+  }
+
+  // For inline class maps (each class card gets its own map)
+  function initClassMap(classId, lat, lng) {
+    const mapId = `map_${classId}`;
+    const container = document.getElementById(mapId);
+    if (!container) return;
+    if (classMaps[classId]) {
+      classMaps[classId].remove();
+      delete classMaps[classId];
+    }
+    const map = L.map(mapId, { zoomControl: true }).setView([lat, lng], 15);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    const icon = L.icon({
+      iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+      iconSize: [25, 41],
+      iconAnchor: [12, 41]
+    });
+    const marker = L.marker([lat, lng], { draggable: true, icon }).addTo(map);
+    marker.on('dragend', function() {
+      const pos = marker.getLatLng();
+      document.getElementById(`geoLat_${classId}`).value = pos.lat.toFixed(6);
+      document.getElementById(`geoLng_${classId}`).value = pos.lng.toFixed(6);
+      updateClassCircle(classId, pos.lat, pos.lng);
+    });
+    map.on('click', function(e) {
+      marker.setLatLng(e.latlng);
+      document.getElementById(`geoLat_${classId}`).value = e.latlng.lat.toFixed(6);
+      document.getElementById(`geoLng_${classId}`).value = e.latlng.lng.toFixed(6);
+      updateClassCircle(classId, e.latlng.lat, e.latlng.lng);
+    });
+    const radius = parseInt(document.getElementById(`geoRadius_${classId}`).value) || 100;
+    const circle = L.circle([lat, lng], {
+      color: '#3b82f6',
+      fillColor: '#3b82f6',
+      fillOpacity: 0.15,
+      radius: radius
+    }).addTo(map);
+    document.getElementById(`geoRadius_${classId}`).addEventListener('input', function() {
+      const r = parseInt(this.value);
+      document.getElementById(`radiusValue_${classId}`).innerText = r;
+      if (circle && marker) {
+        const pos = marker.getLatLng();
+        circle.setLatLng(pos);
+        circle.setRadius(r);
+      }
+    });
+    classMaps[classId] = map;
+    setTimeout(() => map.invalidateSize(), 200);
+  }
+
+  function updateClassCircle(classId, lat, lng) {
+    // Circle is updated via the event listener on marker drag/click
+  }
+
+  // ----- Dropdown and Profile functions -----
   function toggleDropdown() {
     document.getElementById('userDropdown').classList.toggle('show');
   }
@@ -1209,7 +1391,6 @@ app.get('/', (req, res) => {
     }
   }
 
-  // Profile functions
   function openProfileModal() {
     document.getElementById('profileName').value = currentUser.name || '';
     document.getElementById('profileEmail').value = currentUser.email || '';
@@ -1232,21 +1413,18 @@ app.get('/', (req, res) => {
     const currentPassword = document.getElementById('profileCurrentPassword').value;
     const newPassword = document.getElementById('profileNewPassword').value;
     const confirmPassword = document.getElementById('profileConfirmPassword').value;
-    
     if (newPassword && newPassword !== confirmPassword) {
       document.getElementById('profileMessage').innerText = 'New passwords do not match';
       document.getElementById('profileMessage').classList.remove('hidden');
       return;
     }
-    
     const payload = { name, email };
     if (currentPassword) payload.currentPassword = currentPassword;
     if (newPassword) payload.newPassword = newPassword;
-    
     try {
       const res = await fetch('/api/profile', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'Authorization': \`Bearer \${token}\` },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify(payload)
       });
       const data = await res.json();
@@ -1254,7 +1432,7 @@ app.get('/', (req, res) => {
       alert('Profile updated successfully');
       currentUser = data.user;
       localStorage.setItem('user', JSON.stringify(currentUser));
-      document.getElementById('userGreeting').innerHTML = \`👋 \${currentUser.name}\`;
+      document.getElementById('userGreeting').innerHTML = `👋 ${currentUser.name}`;
       closeProfileModal();
     } catch (err) {
       document.getElementById('profileMessage').innerText = err.message;
@@ -1278,20 +1456,20 @@ app.get('/', (req, res) => {
     scheduleSlots.forEach((slot, idx) => {
       const div = document.createElement('div');
       div.className = 'slot-row';
-      div.innerHTML = \`
-        <select onchange="scheduleSlots[\${idx}].day = this.value">
-          <option value="Monday" \${slot.day === 'Monday' ? 'selected' : ''}>Monday</option>
-          <option value="Tuesday" \${slot.day === 'Tuesday' ? 'selected' : ''}>Tuesday</option>
-          <option value="Wednesday" \${slot.day === 'Wednesday' ? 'selected' : ''}>Wednesday</option>
-          <option value="Thursday" \${slot.day === 'Thursday' ? 'selected' : ''}>Thursday</option>
-          <option value="Friday" \${slot.day === 'Friday' ? 'selected' : ''}>Friday</option>
-          <option value="Saturday" \${slot.day === 'Saturday' ? 'selected' : ''}>Saturday</option>
-          <option value="Sunday" \${slot.day === 'Sunday' ? 'selected' : ''}>Sunday</option>
+      div.innerHTML = `
+        <select onchange="scheduleSlots[${idx}].day = this.value">
+          <option value="Monday" ${slot.day === 'Monday' ? 'selected' : ''}>Monday</option>
+          <option value="Tuesday" ${slot.day === 'Tuesday' ? 'selected' : ''}>Tuesday</option>
+          <option value="Wednesday" ${slot.day === 'Wednesday' ? 'selected' : ''}>Wednesday</option>
+          <option value="Thursday" ${slot.day === 'Thursday' ? 'selected' : ''}>Thursday</option>
+          <option value="Friday" ${slot.day === 'Friday' ? 'selected' : ''}>Friday</option>
+          <option value="Saturday" ${slot.day === 'Saturday' ? 'selected' : ''}>Saturday</option>
+          <option value="Sunday" ${slot.day === 'Sunday' ? 'selected' : ''}>Sunday</option>
         </select>
-        <input type="time" value="\${slot.startTime}" onchange="scheduleSlots[\${idx}].startTime = this.value">
-        <input type="time" value="\${slot.endTime}" onchange="scheduleSlots[\${idx}].endTime = this.value">
-        <button onclick="removeScheduleSlot(\${idx})" style="background:#dc2626; padding:4px 8px;">✖</button>
-      \`;
+        <input type="time" value="${slot.startTime}" onchange="scheduleSlots[${idx}].startTime = this.value">
+        <input type="time" value="${slot.endTime}" onchange="scheduleSlots[${idx}].endTime = this.value">
+        <button onclick="removeScheduleSlot(${idx})" style="background:#dc2626; padding:4px 8px;">✖</button>
+      `;
       container.appendChild(div);
     });
   }
@@ -1311,20 +1489,20 @@ app.get('/', (req, res) => {
     editScheduleSlots.forEach((slot, idx) => {
       const div = document.createElement('div');
       div.className = 'slot-row';
-      div.innerHTML = \`
-        <select onchange="editScheduleSlots[\${idx}].day = this.value">
-          <option value="Monday" \${slot.day === 'Monday' ? 'selected' : ''}>Monday</option>
-          <option value="Tuesday" \${slot.day === 'Tuesday' ? 'selected' : ''}>Tuesday</option>
-          <option value="Wednesday" \${slot.day === 'Wednesday' ? 'selected' : ''}>Wednesday</option>
-          <option value="Thursday" \${slot.day === 'Thursday' ? 'selected' : ''}>Thursday</option>
-          <option value="Friday" \${slot.day === 'Friday' ? 'selected' : ''}>Friday</option>
-          <option value="Saturday" \${slot.day === 'Saturday' ? 'selected' : ''}>Saturday</option>
-          <option value="Sunday" \${slot.day === 'Sunday' ? 'selected' : ''}>Sunday</option>
+      div.innerHTML = `
+        <select onchange="editScheduleSlots[${idx}].day = this.value">
+          <option value="Monday" ${slot.day === 'Monday' ? 'selected' : ''}>Monday</option>
+          <option value="Tuesday" ${slot.day === 'Tuesday' ? 'selected' : ''}>Tuesday</option>
+          <option value="Wednesday" ${slot.day === 'Wednesday' ? 'selected' : ''}>Wednesday</option>
+          <option value="Thursday" ${slot.day === 'Thursday' ? 'selected' : ''}>Thursday</option>
+          <option value="Friday" ${slot.day === 'Friday' ? 'selected' : ''}>Friday</option>
+          <option value="Saturday" ${slot.day === 'Saturday' ? 'selected' : ''}>Saturday</option>
+          <option value="Sunday" ${slot.day === 'Sunday' ? 'selected' : ''}>Sunday</option>
         </select>
-        <input type="time" value="\${slot.startTime}" onchange="editScheduleSlots[\${idx}].startTime = this.value">
-        <input type="time" value="\${slot.endTime}" onchange="editScheduleSlots[\${idx}].endTime = this.value">
-        <button onclick="removeEditScheduleSlot(\${idx})" style="background:#dc2626; padding:4px 8px;">✖</button>
-      \`;
+        <input type="time" value="${slot.startTime}" onchange="editScheduleSlots[${idx}].startTime = this.value">
+        <input type="time" value="${slot.endTime}" onchange="editScheduleSlots[${idx}].endTime = this.value">
+        <button onclick="removeEditScheduleSlot(${idx})" style="background:#dc2626; padding:4px 8px;">✖</button>
+      `;
       container.appendChild(div);
     });
   }
@@ -1337,6 +1515,7 @@ app.get('/', (req, res) => {
     document.getElementById('userGreeting')?.addEventListener('click', toggleDropdown);
   });
 
+  // ----- Auth functions -----
   async function doLogin() {
     const email = document.getElementById('loginEmail').value;
     const password = document.getElementById('loginPassword').value;
@@ -1392,7 +1571,7 @@ app.get('/', (req, res) => {
 
   async function showApp() {
     currentUser = JSON.parse(localStorage.getItem('user'));
-    document.getElementById('userGreeting').innerHTML = \`👋 \${currentUser.name}\`;
+    document.getElementById('userGreeting').innerHTML = `👋 ${currentUser.name}`;
     document.getElementById('loginSection').classList.add('hidden');
     document.getElementById('registerSection').classList.add('hidden');
     document.getElementById('appSection').classList.remove('hidden');
@@ -1413,7 +1592,7 @@ app.get('/', (req, res) => {
   }
 
   async function loadClasses() {
-    const res = await fetch('/api/my-classes', { headers: { 'Authorization': \`Bearer \${token}\` } });
+    const res = await fetch('/api/my-classes', { headers: { 'Authorization': `Bearer ${token}` } });
     const classes = await res.json();
     const container = document.getElementById('instructorClasses');
     if(classes.length === 0) { container.innerHTML = '<p>No classes yet.</p>'; return; }
@@ -1421,47 +1600,55 @@ app.get('/', (req, res) => {
     const grid = container.querySelector('.grid');
     for(const cls of classes) {
       const hasGeo = !!cls.geofence;
-      const scheduleText = cls.schedule.slots.map(s => \`\${s.day.substring(0,3)} \${s.startTime}-\${s.endTime}\`).join(', ');
+      const scheduleText = cls.schedule.slots.map(s => `${s.day.substring(0,3)} ${s.startTime}-${s.endTime}`).join(', ');
       const card = document.createElement('div');
       card.className = 'class-card';
-      card.innerHTML = \`
-        <h4>\${cls.className} <span class="badge badge-geo">\${hasGeo ? 'Geofenced' : 'No geofence'}</span></h4>
-        <p><strong>\${cls.courseCode}</strong> | 👥 \${cls.studentCount} students</p>
-        <p>📅 \${scheduleText}</p>
-        <p>📍 \${cls.locationName}</p>
-        <div class="toggle" id="toggleGeo_\${cls.id}" onclick="toggleGeoEnabled(\${cls.id})">
-          <span>🔒 Geofencing</span><span id="geoIndicator_\${cls.id}">\${hasGeo ? '✅' : '❌'}</span>
+      card.innerHTML = `
+        <h4>${cls.className} <span class="badge badge-geo">${hasGeo ? 'Geofenced' : 'No geofence'}</span></h4>
+        <p><strong>${cls.courseCode}</strong> | 👥 ${cls.studentCount} students</p>
+        <p>📅 ${scheduleText}</p>
+        <p>📍 ${cls.locationName}</p>
+        <div class="toggle" id="toggleGeo_${cls.id}" onclick="toggleGeoEnabled(${cls.id})">
+          <span>🔒 Geofencing</span><span id="geoIndicator_${cls.id}">${hasGeo ? '✅' : '❌'}</span>
         </div>
-        <div id="geoSettings_\${cls.id}" style="display:\${hasGeo ? 'block' : 'none'};" class="geo-settings">
-          <button onclick="getLocationForClass(\${cls.id})">📍 Use current</button>
-          <input type="text" id="geoLat_\${cls.id}" placeholder="Latitude" value="\${cls.geofence?.latitude || ''}">
-          <input type="text" id="geoLng_\${cls.id}" placeholder="Longitude" value="\${cls.geofence?.longitude || ''}">
-          <label>Radius: <span id="radiusValue_\${cls.id}">\${cls.geofence?.radius || 100}</span> m</label>
-          <input type="range" id="geoRadius_\${cls.id}" min="10" max="500" step="10" value="\${cls.geofence?.radius || 100}" oninput="document.getElementById('radiusValue_\${cls.id}').innerText=this.value">
+        <div id="geoSettings_${cls.id}" style="display:${hasGeo ? 'block' : 'none'};" class="geo-settings">
+          <button onclick="getLocationForClass(${cls.id})">📍 Use current</button>
+          <input type="text" id="geoLat_${cls.id}" placeholder="Latitude" value="${cls.geofence?.latitude || ''}">
+          <input type="text" id="geoLng_${cls.id}" placeholder="Longitude" value="${cls.geofence?.longitude || ''}">
+          <label>Radius: <span id="radiusValue_${cls.id}">${cls.geofence?.radius || 100}</span> m</label>
+          <input type="range" id="geoRadius_${cls.id}" min="10" max="500" step="10" value="${cls.geofence?.radius || 100}" oninput="document.getElementById('radiusValue_${cls.id}').innerText=this.value">
           <div class="preset-buttons">
-            <span class="preset" onclick="setClassRadius(\${cls.id},20)">20m</span>
-            <span class="preset" onclick="setClassRadius(\${cls.id},50)">50m</span>
-            <span class="preset" onclick="setClassRadius(\${cls.id},100)">100m</span>
-            <span class="preset" onclick="setClassRadius(\${cls.id},200)">200m</span>
-            <span class="preset" onclick="setClassRadius(\${cls.id},500)">500m</span>
+            <span class="preset" onclick="setClassRadius(${cls.id},20)">20m</span>
+            <span class="preset" onclick="setClassRadius(${cls.id},50)">50m</span>
+            <span class="preset" onclick="setClassRadius(${cls.id},100)">100m</span>
+            <span class="preset" onclick="setClassRadius(${cls.id},200)">200m</span>
+            <span class="preset" onclick="setClassRadius(${cls.id},500)">500m</span>
           </div>
+          <!-- Map for this class -->
+          <div id="map_${cls.id}" class="class-geofence-map"></div>
         </div>
         <div class="flex" style="margin-top:16px;">
-          <button onclick="saveGeofence(\${cls.id})">💾 Save Geofence</button>
-          <button onclick="removeGeofence(\${cls.id})" style="background:#dc2626;">🗑️ Remove</button>
-          <button onclick="editClass(\${cls.id})">✏️ Edit</button>
-          <button onclick="openManualAttendance(\${cls.id})">📝 Manual Attendance</button>
-          <button onclick="viewCalendar(\${cls.id})">📅 Calendar</button>
-          <button onclick="exportExcel(\${cls.id})">📊 Export Excel</button>
-          <button onclick="openEnrollModal(\${cls.id})">➕ Enroll</button>
+          <button onclick="saveGeofence(${cls.id})">💾 Save Geofence</button>
+          <button onclick="removeGeofence(${cls.id})" style="background:#dc2626;">🗑️ Remove</button>
+          <button onclick="editClass(${cls.id})">✏️ Edit</button>
+          <button onclick="openManualAttendance(${cls.id})">📝 Manual Attendance</button>
+          <button onclick="viewCalendar(${cls.id})">📅 Calendar</button>
+          <button onclick="exportExcel(${cls.id})">📊 Export Excel</button>
+          <button onclick="openEnrollModal(${cls.id})">➕ Enroll</button>
         </div>
-      \`;
+      `;
       grid.appendChild(card);
+      // If geofence exists, init the map
+      if (hasGeo) {
+        setTimeout(() => {
+          initClassMap(cls.id, cls.geofence.latitude, cls.geofence.longitude);
+        }, 100);
+      }
     }
   }
 
   async function loadStudentData() {
-    const res = await fetch('/api/my-classes', { headers: { 'Authorization': \`Bearer \${token}\` } });
+    const res = await fetch('/api/my-classes', { headers: { 'Authorization': `Bearer ${token}` } });
     const classes = await res.json();
     const container = document.getElementById('studentClasses');
     if(classes.length === 0) { container.innerHTML = '<p>No enrolled classes.</p>'; return; }
@@ -1469,68 +1656,83 @@ app.get('/', (req, res) => {
     const grid = container.querySelector('.grid');
     for(const cls of classes) {
       const hasGeo = !!cls.geofence;
-      const geoText = hasGeo ? \`📍 Within \${cls.geofence.radius}m\` : '🌍 Any location';
-      const scheduleText = cls.schedule.slots.map(s => \`\${s.day.substring(0,3)} \${s.startTime}-\${s.endTime}\`).join(', ');
+      const geoText = hasGeo ? `📍 Within ${cls.geofence.radius}m` : '🌍 Any location';
+      const scheduleText = cls.schedule.slots.map(s => `${s.day.substring(0,3)} ${s.startTime}-${s.endTime}`).join(', ');
       const card = document.createElement('div');
       card.className = 'class-card';
-      card.innerHTML = \`
-        <h4>\${cls.className}</h4>
-        <p><strong>\${cls.courseCode}</strong></p>
-        <p>📅 \${scheduleText}</p>
-        <p>📍 \${cls.locationName}</p>
-        <p><small>\${geoText}</small></p>
+      card.innerHTML = `
+        <h4>${cls.className}</h4>
+        <p><strong>${cls.courseCode}</strong></p>
+        <p>📅 ${scheduleText}</p>
+        <p>📍 ${cls.locationName}</p>
+        <p><small>${geoText}</small></p>
         <div class="flex">
-          <button onclick="openAttendance(\${cls.id})">✅ Mark Attendance</button>
-          <button onclick="viewMyCalendar(\${cls.id})">📊 My Attendance</button>
+          <button onclick="openAttendance(${cls.id})">✅ Mark Attendance</button>
+          <button onclick="viewMyCalendar(${cls.id})">📊 My Attendance</button>
         </div>
-      \`;
+      `;
       grid.appendChild(card);
     }
   }
 
-  // Geofence helpers
+  // ----- Geofence helpers (updated to init map on toggle) -----
   window.toggleGeoEnabled = function(classId) {
-    const toggle = document.getElementById(\`toggleGeo_\${classId}\`);
-    const settings = document.getElementById(\`geoSettings_\${classId}\`);
-    const indicator = document.getElementById(\`geoIndicator_\${classId}\`);
+    const toggle = document.getElementById(`toggleGeo_${classId}`);
+    const settings = document.getElementById(`geoSettings_${classId}`);
+    const indicator = document.getElementById(`geoIndicator_${classId}`);
     const active = toggle.classList.contains('active');
     if(active) {
       toggle.classList.remove('active');
       indicator.innerText = '❌';
       settings.style.display = 'none';
+      // Remove map if exists
+      if (classMaps[classId]) {
+        classMaps[classId].remove();
+        delete classMaps[classId];
+      }
     } else {
       toggle.classList.add('active');
       indicator.innerText = '✅';
       settings.style.display = 'block';
+      // Init map with current lat/lng
+      const lat = parseFloat(document.getElementById(`geoLat_${classId}`).value) || 28.6139;
+      const lng = parseFloat(document.getElementById(`geoLng_${classId}`).value) || 77.2090;
+      setTimeout(() => initClassMap(classId, lat, lng), 100);
     }
   };
   window.getLocationForClass = function(classId) {
     if(navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(pos => {
-        document.getElementById(\`geoLat_\${classId}\`).value = pos.coords.latitude;
-        document.getElementById(\`geoLng_\${classId}\`).value = pos.coords.longitude;
+        document.getElementById(`geoLat_${classId}`).value = pos.coords.latitude;
+        document.getElementById(`geoLng_${classId}`).value = pos.coords.longitude;
+        // Update map
+        if (classMaps[classId]) {
+          classMaps[classId].remove();
+          delete classMaps[classId];
+        }
+        setTimeout(() => initClassMap(classId, pos.coords.latitude, pos.coords.longitude), 100);
         alert('Location captured');
       });
     }
   };
   window.setClassRadius = function(classId, radius) {
-    const slider = document.getElementById(\`geoRadius_\${classId}\`);
-    const display = document.getElementById(\`radiusValue_\${classId}\`);
+    const slider = document.getElementById(`geoRadius_${classId}`);
+    const display = document.getElementById(`radiusValue_${classId}`);
     if(slider) { slider.value = radius; display.innerText = radius; }
   };
   window.saveGeofence = async function(classId) {
-    const isEnabled = document.getElementById(\`toggleGeo_\${classId}\`).classList.contains('active');
+    const isEnabled = document.getElementById(`toggleGeo_${classId}`).classList.contains('active');
     let geofence = null;
     if(isEnabled) {
-      const lat = document.getElementById(\`geoLat_\${classId}\`).value;
-      const lng = document.getElementById(\`geoLng_\${classId}\`).value;
-      const radius = parseInt(document.getElementById(\`geoRadius_\${classId}\`).value);
+      const lat = document.getElementById(`geoLat_${classId}`).value;
+      const lng = document.getElementById(`geoLng_${classId}`).value;
+      const radius = parseInt(document.getElementById(`geoRadius_${classId}`).value);
       if(!lat || !lng) { alert('Enter latitude/longitude'); return; }
       geofence = { latitude: parseFloat(lat), longitude: parseFloat(lng), radius };
     }
-    const res = await fetch(\`/api/classes/\${classId}/geofence\`, {
+    const res = await fetch(`/api/classes/${classId}/geofence`, {
       method: 'PUT',
-      headers: { 'Content-Type':'application/json', 'Authorization': \`Bearer \${token}\` },
+      headers: { 'Content-Type':'application/json', 'Authorization': `Bearer ${token}` },
       body: JSON.stringify({ geofence })
     });
     const data = await res.json();
@@ -1541,13 +1743,58 @@ app.get('/', (req, res) => {
     if(confirm('Remove geofence?')) await saveGeofence(classId);
   };
 
-  // Manual Attendance
+  // ----- Toggle geofence in create form -----
+  function toggleGeoEnable() {
+    const toggle = document.getElementById('geoEnableToggle');
+    const settings = document.getElementById('geofenceSettings');
+    const indicator = document.getElementById('geoIndicator');
+    if(toggle.classList.contains('active')) {
+      toggle.classList.remove('active');
+      indicator.innerText = '❌';
+      settings.style.display = 'none';
+      if (createMap) {
+        createMap.remove();
+        createMap = null;
+      }
+    } else {
+      toggle.classList.add('active');
+      indicator.innerText = '✅';
+      settings.style.display = 'block';
+      const lat = parseFloat(document.getElementById('geoLat').value) || 28.6139;
+      const lng = parseFloat(document.getElementById('geoLng').value) || 77.2090;
+      setTimeout(() => initCreateMap(lat, lng), 100);
+    }
+  }
+
+  function getCurrentLocationForCreate() {
+    if(navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(pos => {
+        document.getElementById('geoLat').value = pos.coords.latitude;
+        document.getElementById('geoLng').value = pos.coords.longitude;
+        if (createMap) {
+          createMap.remove();
+          createMap = null;
+        }
+        setTimeout(() => initCreateMap(pos.coords.latitude, pos.coords.longitude), 100);
+        alert('Location set');
+      });
+    }
+  }
+
+  function setRadius(radius) {
+    const slider = document.getElementById('geoRadius');
+    const span = document.getElementById('radiusValue');
+    slider.value = radius;
+    span.innerText = radius;
+  }
+
+  // ----- Manual Attendance -----
   async function openManualAttendance(classId) {
     currentManualClassId = classId;
-    const classRes = await fetch('/api/my-classes', { headers: { 'Authorization': \`Bearer \${token}\` } });
+    const classRes = await fetch('/api/my-classes', { headers: { 'Authorization': `Bearer ${token}` } });
     const classes = await classRes.json();
     const cls = classes.find(c => c.id === classId);
-    document.getElementById('manualAttendanceTitle').innerHTML = \`Manual Attendance - \${cls.className}\`;
+    document.getElementById('manualAttendanceTitle').innerHTML = `Manual Attendance - ${cls.className}`;
     const slots = cls.schedule.slots;
     const today = new Date();
     const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
@@ -1558,10 +1805,10 @@ app.get('/', (req, res) => {
     const year = validDate.getFullYear();
     const month = String(validDate.getMonth() + 1).padStart(2, '0');
     const day = String(validDate.getDate()).padStart(2, '0');
-    const dateStr = \`\${year}-\${month}-\${day}\`;
+    const dateStr = `${year}-${month}-${day}`;
     document.getElementById('manualDate').value = dateStr;
     const slot = slots.find(s => s.day === dayNames[validDate.getDay()]);
-    document.getElementById('classTimeDisplay').innerHTML = slot ? \`Class time: \${slot.startTime} - \${slot.endTime}\` : '';
+    document.getElementById('classTimeDisplay').innerHTML = slot ? `Class time: ${slot.startTime} - ${slot.endTime}` : '';
     document.getElementById('manualDate').addEventListener('change', () => loadManualAttendanceData(classId));
     await loadManualAttendanceData(classId);
     document.getElementById('manualAttendanceModal').classList.remove('hidden');
@@ -1570,10 +1817,10 @@ app.get('/', (req, res) => {
   async function loadManualAttendanceData(classId) {
     const date = document.getElementById('manualDate').value;
     if (!date) return;
-    const studentsRes = await fetch(\`/api/class-students/\${classId}\`, { headers: { 'Authorization': \`Bearer \${token}\` } });
+    const studentsRes = await fetch(`/api/class-students/${classId}`, { headers: { 'Authorization': `Bearer ${token}` } });
     const students = await studentsRes.json();
     currentManualStudents = students;
-    const attRes = await fetch(\`/api/attendance-status/\${classId}/\${date}\`, { headers: { 'Authorization': \`Bearer \${token}\` } });
+    const attRes = await fetch(`/api/attendance-status/${classId}/${date}`, { headers: { 'Authorization': `Bearer ${token}` } });
     const existing = await attRes.json();
     const statusMap = {};
     existing.forEach(a => { statusMap[a.student] = a.status; });
@@ -1592,13 +1839,13 @@ app.get('/', (req, res) => {
       const cell = row.insertCell(2);
       const presentRadio = document.createElement('input');
       presentRadio.type = 'radio';
-      presentRadio.name = \`att_\${student.id}\`;
+      presentRadio.name = `att_${student.id}`;
       presentRadio.value = 'present';
       presentRadio.checked = (status === 'present');
       presentRadio.onchange = () => { currentManualAttendance[student.id] = 'present'; };
       const absentRadio = document.createElement('input');
       absentRadio.type = 'radio';
-      absentRadio.name = \`att_\${student.id}\`;
+      absentRadio.name = `att_${student.id}`;
       absentRadio.value = 'absent';
       absentRadio.checked = (status === 'absent');
       absentRadio.onchange = () => { currentManualAttendance[student.id] = 'absent'; };
@@ -1618,7 +1865,7 @@ app.get('/', (req, res) => {
     }
     const res = await fetch('/api/manual-attendance', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': \`Bearer \${token}\` },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       body: JSON.stringify({ classId: currentManualClassId, date, attendance: attendanceList })
     });
     const data = await res.json();
@@ -1631,10 +1878,10 @@ app.get('/', (req, res) => {
     currentManualClassId = null;
   }
 
-  // Edit Class
+  // ----- Edit Class (with map) -----
   async function editClass(classId) {
     editingClassId = classId;
-    const res = await fetch('/api/my-classes', { headers: { 'Authorization': \`Bearer \${token}\` } });
+    const res = await fetch('/api/my-classes', { headers: { 'Authorization': `Bearer ${token}` } });
     const classes = await res.json();
     const cls = classes.find(c => c.id === classId);
     if(!cls) return;
@@ -1655,6 +1902,7 @@ app.get('/', (req, res) => {
       document.getElementById('editGeoLng').value = cls.geofence.longitude;
       document.getElementById('editGeoRadius').value = cls.geofence.radius;
       document.getElementById('editRadiusValue').innerText = cls.geofence.radius;
+      setTimeout(() => initEditMap(cls.geofence.latitude, cls.geofence.longitude), 100);
     } else {
       geoEnabledToggle.classList.remove('active');
       geoIndicator.innerText = '❌';
@@ -1663,6 +1911,7 @@ app.get('/', (req, res) => {
       document.getElementById('editGeoLng').value = '';
       document.getElementById('editGeoRadius').value = 100;
       document.getElementById('editRadiusValue').innerText = '100';
+      if (editMap) { editMap.remove(); editMap = null; }
     }
     document.getElementById('editClassModal').classList.remove('hidden');
   }
@@ -1670,6 +1919,7 @@ app.get('/', (req, res) => {
   function closeEditModal() {
     document.getElementById('editClassModal').classList.add('hidden');
     editingClassId = null;
+    if (editMap) { editMap.remove(); editMap = null; }
   }
 
   function toggleEditGeoEnable() {
@@ -1680,10 +1930,14 @@ app.get('/', (req, res) => {
       toggle.classList.remove('active');
       indicator.innerText = '❌';
       settings.style.display = 'none';
+      if (editMap) { editMap.remove(); editMap = null; }
     } else {
       toggle.classList.add('active');
       indicator.innerText = '✅';
       settings.style.display = 'block';
+      const lat = parseFloat(document.getElementById('editGeoLat').value) || 28.6139;
+      const lng = parseFloat(document.getElementById('editGeoLng').value) || 77.2090;
+      setTimeout(() => initEditMap(lat, lng), 100);
     }
   }
 
@@ -1692,6 +1946,11 @@ app.get('/', (req, res) => {
       navigator.geolocation.getCurrentPosition(pos => {
         document.getElementById('editGeoLat').value = pos.coords.latitude;
         document.getElementById('editGeoLng').value = pos.coords.longitude;
+        if (editMap) {
+          editMap.remove();
+          editMap = null;
+        }
+        setTimeout(() => initEditMap(pos.coords.latitude, pos.coords.longitude), 100);
         alert('Location set');
       });
     }
@@ -1722,9 +1981,9 @@ app.get('/', (req, res) => {
       if(lat && lng) geofence = { latitude: parseFloat(lat), longitude: parseFloat(lng), radius };
     }
     const payload = { className, courseCode, scheduleSlots: editScheduleSlots, locationName, geofence };
-    const res = await fetch(\`/api/classes/\${editingClassId}\`, {
+    const res = await fetch(`/api/classes/${editingClassId}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json', 'Authorization': \`Bearer \${token}\` },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       body: JSON.stringify(payload)
     });
     const data = await res.json();
@@ -1735,7 +1994,7 @@ app.get('/', (req, res) => {
     } else alert(data.error);
   }
 
-  // Create class
+  // ----- Create class (with map) -----
   async function createClass() {
     const className = document.getElementById('className').value;
     const courseCode = document.getElementById('courseCode').value;
@@ -1754,68 +2013,39 @@ app.get('/', (req, res) => {
     }
     const res = await fetch('/api/classes', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': \`Bearer \${token}\` },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       body: JSON.stringify({ className, courseCode, scheduleSlots, locationName, geofence })
     });
     if(res.ok) { alert('Class created'); location.reload(); }
     else { const err = await res.json(); alert(err.error); }
   }
-  function toggleGeoEnable() {
-    const toggle = document.getElementById('geoEnableToggle');
-    const settings = document.getElementById('geofenceSettings');
-    const indicator = document.getElementById('geoIndicator');
-    if(toggle.classList.contains('active')) {
-      toggle.classList.remove('active');
-      indicator.innerText = '❌';
-      settings.style.display = 'none';
-    } else {
-      toggle.classList.add('active');
-      indicator.innerText = '✅';
-      settings.style.display = 'block';
-    }
-  }
-  function getCurrentLocationForCreate() {
-    if(navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(pos => {
-        document.getElementById('geoLat').value = pos.coords.latitude;
-        document.getElementById('geoLng').value = pos.coords.longitude;
-        alert('Location set');
-      });
-    }
-  }
-  function setRadius(radius) {
-    const slider = document.getElementById('geoRadius');
-    const span = document.getElementById('radiusValue');
-    slider.value = radius;
-    span.innerText = radius;
-  }
 
-  // Calendar view
+  // ----- Calendar view -----
   async function viewCalendar(classId) {
     const now = new Date();
     const year = now.getFullYear();
     const month = now.getMonth()+1;
-    const res = await fetch(\`/api/calendar/\${classId}/\${year}/\${month}\`, { headers: { 'Authorization': \`Bearer \${token}\` } });
+    const res = await fetch(`/api/calendar/${classId}/${year}/${month}`, { headers: { 'Authorization': `Bearer ${token}` } });
     const data = await res.json();
-    let html = \`<h3>\${data.className} - \${month}/\${year} (IST)</h3><p>Overall period: \${data.periodStart} to \${data.periodEnd} (Total class days: \${data.totalClassDays})</p><div style="overflow-x:auto"><table border="1" style="border-collapse:collapse; width:100%"><thead><tr><th>Student Name</th><th>Reg No</th>\`;
+    let html = `<h3>${data.className} - ${month}/${year} (IST)</h3><p>Overall period: ${data.periodStart} to ${data.periodEnd} (Total class days: ${data.totalClassDays})</p><div style="overflow-x:auto"><table border="1" style="border-collapse:collapse; width:100%"><thead><tr><th>Student Name</th><th>Reg No</th>`;
     for (const cd of data.classDates) {
-      const timeDisplay = (cd.startTime !== '—') ? \`<br>\${cd.startTime}-\${cd.endTime}\` : '';
-      html += \`<th>\${cd.date}<br>\${cd.dayName}\${timeDisplay}</th>\`;
+      const timeDisplay = (cd.startTime !== '—') ? `<br>${cd.startTime}-${cd.endTime}` : '';
+      html += `<th>${cd.date}<br>${cd.dayName}${timeDisplay}</th>`;
     }
-    html += \`<th>Attendance % (overall)</th></tr></thead><tbody>\`;
+    html += `<th>Attendance % (overall)</th></tr></thead><tbody>`;
     for (const row of data.matrix) {
-      html += \`<tr><td>\${row.studentName}</td><td>\${row.studentId || 'N/A'}</td>\`;
+      html += `<tr><td>${row.studentName}</td><td>${row.studentId || 'N/A'}</td>`;
       for (const cd of data.classDates) {
         const status = row[cd.date];
         let cell = '';
         if (status === 'present') cell = '✅ P';
         else if (status === 'late') cell = '⏰ L';
         else cell = '❌ A';
-        html += \`<td style="text-align:center">\${cell}</td>\`;
+        html += `<td style="text-align:center">${cell}</td>`;
       }
-      html += \`<td style="text-align:center; font-weight:bold">\${row.overallPercentage}%</td></td>\`;
+      html += `<td style="text-align:center; font-weight:bold">${row.overallPercentage}%</td></tr>`;
     }
-    html += \`</tbody></table></div>\`;
+    html += `</tbody></table></div>`;
     const win = window.open();
     win.document.write(html);
   }
@@ -1824,30 +2054,31 @@ app.get('/', (req, res) => {
     const now = new Date();
     const year = now.getFullYear();
     const month = now.getMonth()+1;
-    const res = await fetch(\`/api/calendar/\${classId}/\${year}/\${month}\`, { headers: { 'Authorization': \`Bearer \${token}\` } });
+    const res = await fetch(`/api/calendar/${classId}/${year}/${month}`, { headers: { 'Authorization': `Bearer ${token}` } });
     const data = await res.json();
     const myRow = data.matrix.find(r => r.studentName === currentUser.name);
     if (!myRow) { alert('No attendance data'); return; }
-    let html = \`<h3>My Attendance - \${data.className} (\${month}/\${year}) IST</h3><p>Overall period: \${data.periodStart} to \${data.periodEnd} (Total class days: \${data.totalClassDays})</p><div style="overflow-x:auto"><table border="1"><thead><tr><th>Date</th><th>Day</th><th>Status</th></table></thead><tbody>\`;
+    let html = `<h3>My Attendance - ${data.className} (${month}/${year}) IST</h3><p>Overall period: ${data.periodStart} to ${data.periodEnd} (Total class days: ${data.totalClassDays})</p><div style="overflow-x:auto"><table border="1"><thead><tr><th>Date</th><th>Day</th><th>Status</th></tr></thead><tbody>`;
     for (const cd of data.classDates) {
       const status = myRow[cd.date];
       let statusText = '';
       if (status === 'present') statusText = '✅ Present';
       else if (status === 'late') statusText = '⏰ Late';
       else statusText = '❌ Absent';
-      html += \`<tr><td>\${cd.date}</td><td>\${cd.dayName}</td><td>\${statusText}</td></tr>\`;
+      html += `<tr><td>${cd.date}</td><td>${cd.dayName}</td><td>${statusText}</td></tr>`;
     }
-    html += \`</tbody></table><p><strong>Overall Attendance: \${myRow.overallPercentage}%</strong></p></div>\`;
+    html += `</tbody></table><p><strong>Overall Attendance: ${myRow.overallPercentage}%</strong></p></div>`;
     const win = window.open();
     win.document.write(html);
   }
 
   async function exportExcel(classId) {
     const now = new Date();
-    const url = \`/api/export/\${classId}/\${now.getFullYear()}/\${now.getMonth()+1}?token=\${token}\`;
+    const url = `/api/export/${classId}/${now.getFullYear()}/${now.getMonth()+1}?token=${token}`;
     window.open(url, '_blank');
   }
 
+  // ----- Enrollment functions -----
   function openEnrollModal(classId) {
     currentEnrollClassId = classId;
     document.getElementById('enrollModal').classList.remove('hidden');
@@ -1878,16 +2109,16 @@ app.get('/', (req, res) => {
     if(!name || !studentId) { alert('Name and Registration Number required'); return; }
     const createRes = await fetch('/api/create-student', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': \`Bearer \${token}\` },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       body: JSON.stringify({ name, studentId, email })
     });
     const createData = await createRes.json();
     if(!createRes.ok) { alert(createData.error); return; }
     const student = createData.user;
-    if(createData.password) alert(\`Student created. Temporary password: \${createData.password}\`);
+    if(createData.password) alert(`Student created. Temporary password: ${createData.password}`);
     const enrollRes = await fetch('/api/enroll', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': \`Bearer \${token}\` },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       body: JSON.stringify({ classId: currentEnrollClassId, studentId: student.id })
     });
     const enrollData = await enrollRes.json();
@@ -1902,16 +2133,16 @@ app.get('/', (req, res) => {
     formData.append('classId', currentEnrollClassId);
     const res = await fetch('/api/bulk-enroll', {
       method: 'POST',
-      headers: { 'Authorization': \`Bearer \${token}\` },
+      headers: { 'Authorization': `Bearer ${token}` },
       body: formData
     });
     const data = await res.json();
     if(!res.ok) { alert(data.error); return; }
-    let msg = 'Bulk enrollment:\\n';
+    let msg = 'Bulk enrollment:\n';
     data.results.forEach(r => {
-      msg += \`\${r.name} (\${r.studentId}) - \${r.status}\`;
-      if(r.password) msg += \` (pw: \${r.password})\`;
-      msg += '\\n';
+      msg += `${r.name} (${r.studentId}) - ${r.status}`;
+      if(r.password) msg += ` (pw: ${r.password})`;
+      msg += '\n';
     });
     alert(msg);
     closeEnrollModal();
@@ -1922,7 +2153,7 @@ app.get('/', (req, res) => {
     if(!courseCode) { alert('Enter course code'); return; }
     const res = await fetch('/api/self-enroll', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': \`Bearer \${token}\` },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       body: JSON.stringify({ courseCode })
     });
     const data = await res.json();
@@ -1931,7 +2162,7 @@ app.get('/', (req, res) => {
     document.getElementById('selfCourseCode').value = '';
   }
 
-  // Attendance modal (student)
+  // ----- Attendance modal (student) -----
   async function openAttendance(classId) {
     if(currentUser.role !== 'student') return;
     currentClassId = classId;
@@ -1943,7 +2174,7 @@ app.get('/', (req, res) => {
     if(navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(pos => {
         currentLocation = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        document.getElementById('modalLocation').innerHTML = \`📍 Location: \${pos.coords.latitude.toFixed(6)}, \${pos.coords.longitude.toFixed(6)}\`;
+        document.getElementById('modalLocation').innerHTML = `📍 Location: ${pos.coords.latitude.toFixed(6)}, ${pos.coords.longitude.toFixed(6)}`;
         document.getElementById('modalLocation').className = 'info info-success';
       }, () => {
         document.getElementById('modalLocation').innerHTML = '❌ Location denied';
@@ -1992,7 +2223,7 @@ app.get('/', (req, res) => {
     formData.append('selfie', currentSelfieBlob, 'selfie.jpg');
     const res = await fetch('/api/attendance', {
       method: 'POST',
-      headers: { 'Authorization': \`Bearer \${token}\` },
+      headers: { 'Authorization': `Bearer ${token}` },
       body: formData
     });
     const data = await res.json();
